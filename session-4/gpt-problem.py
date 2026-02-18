@@ -69,22 +69,73 @@ def estimate_loss():
     return out
 
 # Copy your Head, MultiHeadAttention, FeedForward and Block classes here
+
+class Head(nn.Module):
+
+    def __init__(self, head_size):
+        super().__init__()
+        self.keys = nn.Linear(n_embd, head_size, bias = False)
+        self.queries = nn.Linear(n_embd, head_size, bias = False)
+        self.values = nn.Linear(n_embd, head_size, bias = False)
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size))) # store a persistent buffer for the forward pass
+
+    def forward (self, x):
+        B, T, C = x.shape
+        q = self.queries(x)
+        k = self.keys(x)
+        attn = q @ k.transpose(-2,-1) / math.sqrt(k.shape[-1])
+        attn = attn.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
+        attn = F.softmax(attn, dim = -1)
+        v = self.values(x)
+        out = attn @ v
+        return out
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size = head_size) for _ in range(num_heads)])
+        self.proj = nn.Linear(n_embd, n_embd)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward (self, x):
+        out = torch.cat([h(x) for h in self.heads], dim = -1)
+        out = self.dropout(self.proj(out))
+        return out
+
+class FeedForward(nn.Module):
+    """ a simple linear layer followed by a non-linearity """
+    def __init__(self, n_embd):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, 4 * n_embd),
+            nn.ReLU(),
+            nn.Linear(4 * n_embd, n_embd),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, x):
+        out = self.net(x)
+        return out
     
 class GPT(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.token_embedding_table = nn.Embedding(vocab_size, )
-        self.pos_embedding_table = ???
+        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        self.pos_embedding_table = nn.Embedding(block_size, n_embd)
         # define blocks, a layer norm and a linear layer
-        ???
+        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_heads) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(n_embd)         
+        self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
-        token_emb = ??? # (B,T,C)
+        token_emb = self.token_embedding_table(idx) # (B,T,C)
         pos_emb = self.pos_embedding_table(torch.arange(T, device=device)) # (T, C)
-        x = ??? # sum the token embeddings and position embeddings
-        ??? # apply blocks, layer norm and linear layer (leading to the logits variable)
+        x = token_emb + pos_emb # sum the token embeddings and position embeddings
+        x = self.blocks(x) # apply blocks, layer norm and linear layer (leading to the logits variable)
+        x = self.ln_f(x)
+        logits = self.lm_head(x)
 
         # do not modify the rest of the method (it computes the loss during the forward pass)
         if targets is None:
