@@ -74,7 +74,7 @@ class GPT(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.token_embedding_table = ???
+        self.token_embedding_table = nn.Embedding(vocab_size, )
         self.pos_embedding_table = ???
         # define blocks, a layer norm and a linear layer
         ???
